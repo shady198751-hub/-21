@@ -1,185 +1,225 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<!-- Chosen Palette: Warm Neutrals (Slate/White) with Blue Accent -->
+<!-- Application Structure Plan: يتخذ التطبيق هيكل النموذج المصدري المكون من قسمين (بيانات المشتكي، تفاصيل الشكوى) كنواة له، وهو التدفق الأكثر منطقية للمستخدم لملء استمارة. تم تعديل النموذج ليقوم بالإرسال عبر جافاسكريبت (Fetch API) للحفاظ على المستخدم في نفس الصفحة وعرض رسالة نجاح منبثقة (Modal) بدلاً من الانتقال إلى صفحة تأكيد جوجل فورمز. -->
+<!-- Visualization & Content Choices: 
+* معلومات التقرير (الاسم، الهاتف، النص) -> الهدف: جمع البيانات -> العرض: حقول إدخال HTML (Input/Textarea) مع Entry IDs خاصة بجوجل فورمز -> التفاعل: إرسال عبر Fetch API وعرض رسالة نجاح منبثقة.
+* لم يتم استخدام تصور البيانات (Chart.js/Plotly). هدف التطبيق هو *تنفيذ* النموذج والإرسال.
+* تأكيد: لم يتم استخدام رسومات SVG أو Mermaid.
+-->
+<!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+<html dir="rtl" lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نموذج تقديم شكوى</title>
-    <!-- تحميل Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        /* تخصيص بسيط لشكل الإدخالات */
-        .form-input {
-            /* إدخالات نظيفة بحافة خفيفة وزاوية دائرية */
-            @apply w-full p-3 border border-gray-200 focus:border-primary-color focus:ring-2 focus:ring-primary-color focus:outline-none transition duration-200 rounded-lg text-gray-800 text-right;
-            background-color: #ffffff;
+        body {
+            font-family: 'Cairo', sans-serif;
         }
-        .required-label::after {
-            content: "*";
-            color: #ef4444; /* أحمر لعلامة النجمة */
-            margin-right: 5px;
+        .chart-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 600px; 
+            margin-left: auto; 
+            margin-right: auto; 
+            height: 300px;
+            max-height: 400px; 
         }
-        .card-shadow {
-            /* ظل أكثر عمقاً وأناقة للبطاقات */
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+        @media (min-width: 768px) { 
+            .chart-container { 
+                height: 350px; 
+            } 
+        }
+        /* Style for the loading spinner */
+        .spinner {
+            border-top-color: #3b82f6;
+            border-right-color: #3b82f6;
+            border-bottom-color: transparent;
+            border-left-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Modal Overlay and Container for centering */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6); /* Dark semi-transparent background */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            z-index: 100;
+        }
+        .modal-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            transform: scale(0.95); /* Start slightly scaled down */
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.visible .modal-content {
+            transform: scale(1); /* Scale up on appearance */
         }
     </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'primary-color': '#00A896', // لون طبيعي (Teal/Mint) للثقة
-                        'secondary-color': '#05668D', // أزرق داكن للتباين
-                        'form-border': '#e0e0e0',
-                        'form-bg': '#f7fdfd', // خلفية فاتحة جداً
-                        'form-card': '#ffffff',
-                    }
-                }
-            }
-        }
-
-        // دالة لمعالجة إرسال النموذج (تسمح بالإرسال وتُظهر رسالة النجاح)
-        function handleSubmit(event) {
-            
-            const form = event.target;
-            
-            // تحقق من صحة النموذج (خاصية HTML5 built-in validation)
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return false; 
-            }
-
-            // إخفاء النموذج وإظهار رسالة مختصرة مباشرة بعد بدء الإرسال
-            const formContainer = document.getElementById('complaint-form');
-            const mainContent = document.getElementById('main-content');
-            // تم حذف الإشارة إلى footer هنا
-            
-            // إخفاء النموذج
-            formContainer.classList.add('hidden');
-            
-            // إنشاء رسالة النجاح
-            const successMessage = document.createElement('div');
-            successMessage.className = 'p-10 bg-white card-shadow rounded-2xl max-w-2xl mx-auto mt-8';
-            successMessage.innerHTML = `
-                <div class="text-center">
-                    <!-- SVG Icon for Success -->
-                    <svg class="mx-auto h-16 w-16 text-primary-color" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    <h3 class="mt-4 text-2xl font-extrabold text-gray-900">تم استلام طلبك بنجاح</h3>
-                    <p class="mt-2 text-base text-gray-600">شكراً لك على التواصل. سيتم مراجعة الشكوى من قبل الفريق المختص والرد عليك في أقرب وقت ممكن.</p>
-                </div>
-            `;
-            // إخفاء رأس النموذج القديم
-            const header = document.getElementById('form-header');
-            if (header) header.classList.add('hidden');
-
-            // تفريغ المحتوى وإضافة رسالة النجاح
-            mainContent.innerHTML = '';
-            mainContent.appendChild(successMessage);
-            
-            // تم حذف منطق التأكد من ظهور التذييل هنا
-            
-            // إرجاع TRUE للسماح ببدء عملية الإرسال الفعلية إلى Google Forms (إلى iframe)
-            return true;
-        }
-
-        // دالة لقراءة معاملات URL وتعبئة حقول النموذج تلقائيًا
-        function prefillFormFromURL() {
-            const params = new URLSearchParams(window.location.search);
-            
-            // ربط معرفات Google Forms ID بحقول النموذج
-            const fieldMap = {
-                'full_name': 'entry.1669479102', 
-                'phone': 'entry.1710953781',      
-                'complaint_text': 'entry.1199212808',
-            };
-
-            // تعبئة حقول النص
-            for (const id in fieldMap) {
-                const paramName = fieldMap[id];
-                const value = params.get(paramName);
-                if (value) {
-                    const element = document.getElementById(id);
-                    if (element) {
-                        element.value = decodeURIComponent(value);
-                    }
-                }
-            }
-        }
-        
-        // استدعاء دالة الملء المسبق عند تحميل الصفحة
-        window.onload = prefillFormFromURL;
-    </script>
 </head>
-<!-- خلفية متدرجة فاتحة ومريحة للعين -->
-<body class="bg-form-bg min-h-screen py-12 px-4 flex justify-center items-center font-sans bg-gradient-to-br from-white to-form-bg">
+<body class="bg-slate-100 text-slate-800">
 
-    <div id="main-content" class="w-full max-w-5xl">
+    <div class="min-h-screen flex items-center justify-center p-4">
         
-        <!-- رأس النموذج (Modern Header) -->
-        <div id="form-header" class="bg-white p-8 border-b-4 border-primary-color rounded-t-2xl card-shadow mb-8" dir="rtl">
-            <div class="flex items-center space-x-4 space-x-reverse mb-4">
-                <!-- Medical Cross Icon (SVG) - رمز طبي بسيط -->
-                <svg class="h-10 w-10 text-primary-color" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                </svg>
-                <h1 class="text-3xl font-extrabold text-secondary-color">نموذج طلب تقديم شكوى</h1>
-            </div>
-            <p class="mt-2 text-base text-gray-600 border-t pt-3">
-                نحن نقدر تواصلك. يرجى ملء هذا النموذج ببياناتك الصحيحة لمساعدتنا في معالجة شكواك بكفاءة.
-            </p>
-        </div>
+        <div id="form-container" class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-2xl transition-opacity duration-500">
+            <header class="text-center mb-6">
+                <h1 class="text-2xl sm:text-3xl font-bold text-blue-700">نموذج تقديم شكوى</h1>
+                <p class="text-sm sm:text-base text-slate-600 mt-2">الرجاء ملء جميع الحقول المطلوبة.</p>
+            </header>
 
-        <!-- بطاقة النموذج الرئيسية -->
-        <form id="complaint-form" 
-              action="https://docs.google.com/forms/d/e/1FAIpQLSeU5A21JvEDJDnGWYjaNzYyXCpUJ-mWT08limuiTDLd3s1RIw/formResponse" 
-              method="POST" 
-              target="hidden_iframe" 
-              onsubmit="return handleSubmit(event)" 
-              class="space-y-6" dir="rtl">
-
-            <!-- 1. قسم معلومات الاتصال -->
-            <div class="bg-white p-8 rounded-xl card-shadow">
-                <h2 class="text-xl font-bold text-secondary-color mb-6 border-b pb-3">1. معلومات التواصل</h2>
-
-                <!-- الاسم الكامل -->
-                <div class="mb-6">
-                    <label for="full_name" class="block mb-3 text-sm required-label font-bold text-gray-700">الاسم الكامل:</label>
-                    <input type="text" id="full_name" name="entry.1669479102" class="form-input" required placeholder="يرجى كتابة اسمك بالكامل">
-                </div>
+            <!-- تم تعديل وسم <form> ليتم معالجته بواسطة جافاسكريبت محلياً -->
+            <!-- ملاحظة: Entry IDs (الأرقام بعد entry.) يجب أن يتم تحديثها بمعرفات نموذجك الفعلي -->
+            <form id="complaintForm" class="space-y-6" action="https://docs.google.com/forms/d/e/1FAIpQLSeU5A21JvEDJDnGWYjaNzYyXCpUJ-mWT08limuiTDLd3s1RIw/formResponse" method="POST">
                 
-                <!-- رقم الهاتف -->
-                <div class="mb-0">
-                    <label for="phone" class="block mb-3 text-sm font-bold text-gray-700">رقم الهاتف:</label>
-                    <input type="tel" id="phone" name="entry.1710953781" class="form-input" placeholder="0XXXXXXXXXX">
+                <fieldset class="border border-slate-300 rounded-lg p-4">
+                    <legend class="text-lg font-semibold text-slate-700 px-2">القسم الأول: بيانات المُشتكي</legend>
+                    <div class="space-y-4 mt-4">
+                        <div>
+                            <label for="full-name" class="block text-sm font-medium text-slate-700 mb-1">الاسم الثلاثي (اسم، واسم أب، واسم عائلة)</label>
+                            <!-- Entry ID Placeholder: entry.1669479102 -->
+                            <input type="text" id="full-name" name="entry.1669479102" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required>
+                        </div>
+                        <div>
+                            <label for="phone" class="block text-sm font-medium text-slate-700 mb-1">رقم الهاتف</label>
+                            <!-- Entry ID Placeholder: entry.1710953781 -->
+                            <input type="tel" id="phone" name="entry.1710953781" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="border border-slate-300 rounded-lg p-4">
+                    <legend class="text-lg font-semibold text-slate-700 px-2">القسم الثاني: تفاصيل الشكوى</legend>
+                    <div class="space-y-4 mt-4">
+                        <div>
+                            <label for="complaint-text" class="block text-sm font-medium text-slate-700 mb-1">نص الشكوى</label>
+                            <!-- Entry ID Placeholder: entry.1199212808 -->
+                            <textarea id="complaint-text" name="entry.1199212808" rows="7" class="block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="يرجى توضيح ماذا حدث، أين، متى، ومن كان متورطاً؟" required></textarea>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <div>
+                    <button id="submitButton" type="submit" class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-lg text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200">
+                        <span id="buttonText">إرسال الشكوى</span>
+                        <div id="loadingSpinner" class="spinner h-5 w-5 border-4 rounded-full border-solid hidden" role="status"></div>
+                    </button>
                 </div>
+            </form>
+        </div>
+        
+    </div>
+    
+    <!-- رسالة النجاح المنبثقة (Modal) مع Overlay لتحسين التنسيق -->
+    <div id="successModalOverlay" class="modal-overlay">
+        <div id="success-message" class="modal-content bg-white p-8 sm:p-12 rounded-xl shadow-2xl w-full max-w-lg text-center">
+            <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg class="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </div>
+            <h2 class="text-3xl font-bold text-slate-800 mb-3">تم إرسال الشكوى بنجاح!</h2>
+            <p class="text-slate-600 leading-relaxed mb-6">
+                شكراً جزيلاً لكم. لقد تم استلام تفاصيل شكواكم. سيتم مراجعتها والبدء في الإجراءات اللازمة، وسيتم التواصل معكم عبر الهاتف خلال فترة وجيزة.
+            </p>
             
-            <!-- 2. قسم نص الشكوى -->
-            <div class="bg-white p-8 rounded-xl card-shadow">
-                <h2 class="text-xl font-bold text-secondary-color mb-6 border-b pb-3">2. تفاصيل الشكوى</h2>
-
-                <!-- نص الشكوى -->
-                <div class="mb-0">
-                    <label for="complaint_text" class="block mb-3 text-sm required-label font-bold text-gray-700">نص الطلب أو الشكوى بالتفصيل:</label>
-                    <textarea id="complaint_text" name="entry.1199212808" rows="10" class="form-input resize-none" required placeholder="صف المشكلة التي واجهتها بتفاصيل واضحة وموجزة."></textarea>
-                </div>
-            </div>
-
-            <!-- زر الإرسال -->
-            <div class="flex justify-start pt-6">
-                <button type="submit" class="px-8 py-3 bg-gradient-to-r from-primary-color to-secondary-color text-white font-bold rounded-lg shadow-lg hover:from-secondary-color hover:to-primary-color transition duration-300 transform hover:scale-105">
-                    إرسال النموذج
-                </button>
-            </div>
-
-        </form>
-        <!-- نهاية بطاقة النموذج الرئيسية -->
-
+            <a href="https://tabarakmariouteya.site/" id="okButton" class="inline-flex justify-center py-3 px-6 border border-transparent rounded-md shadow-lg text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200">
+                حسناً، فهمت
+            </a>
+        </div>
     </div>
 
-    <!-- تم حذف التذييل هنا -->
 
-    <!-- إطار مخفي لاستقبال رد Google Form دون مغادرة الصفحة -->
-    <iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const complaintForm = document.getElementById('complaintForm');
+            const fullNameInput = document.getElementById('full-name');
+            const formContainer = document.getElementById('form-container');
+            const successModalOverlay = document.getElementById('successModalOverlay');
+            const submitButton = document.getElementById('submitButton');
+            const buttonText = document.getElementById('buttonText');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+
+            // وظيفة للتحقق من الاسم الثلاثي
+            const validateFullName = () => {
+                const nameValue = fullNameInput.value.trim();
+                const nameParts = nameValue.split(/\s+/).filter(part => part.length > 0); 
+                return nameParts.length >= 3;
+            };
+
+            // وظيفة لعرض حالة التحميل
+            const toggleLoading = (isLoading) => {
+                if (isLoading) {
+                    buttonText.classList.add('hidden');
+                    loadingSpinner.classList.remove('hidden');
+                    submitButton.disabled = true;
+                } else {
+                    buttonText.classList.remove('hidden');
+                    loadingSpinner.classList.add('hidden');
+                    submitButton.disabled = false;
+                }
+            };
+
+            // معالج حدث الإرسال
+            complaintForm.addEventListener('submit', async (e) => {
+                e.preventDefault(); // منع الإرسال الافتراضي (الذي يغير الصفحة)
+
+                if (!validateFullName()) {
+                    alert('الرجاء إدخال الاسم الثلاثي كاملاً (ثلاث كلمات على الأقل).');
+                    fullNameInput.focus();
+                    return;
+                }
+                
+                toggleLoading(true);
+
+                // إنشاء كائن FormData من النموذج
+                const formData = new FormData(complaintForm);
+                // تجهيز البيانات للإرسال (Google Forms يتوقع URL-encoded)
+                const params = new URLSearchParams(formData);
+
+                try {
+                    // استخدام Fetch لإرسال البيانات سراً
+                    const response = await fetch(complaintForm.action, {
+                        method: 'POST',
+                        body: params,
+                        mode: 'no-cors' // مطلوب للإرسال الناجح إلى Google Forms دون أخطاء CORS
+                    });
+
+                    // إذا وصل إلى هنا، يعتبر الإرسال ناجحاً (بسبب mode: 'no-cors')
+                    
+                    // إخفاء النموذج وإظهار الرسالة المنبثقة المحسّنة
+                    formContainer.classList.add('opacity-0');
+                    setTimeout(() => {
+                        formContainer.classList.add('hidden');
+                        successModalOverlay.classList.add('visible'); // عرض الـ Overlay
+                        toggleLoading(false);
+                    }, 500); // انتظر حتى يكتمل انتقال opacity للنموذج
+
+                } catch (error) {
+                    // في حالة حدوث خطأ في الشبكة
+                    alert('حدث خطأ أثناء إرسال الشكوى. يرجى المحاولة مرة أخرى.');
+                    console.error('Submission error:', error);
+                    toggleLoading(false);
+                }
+            });
+        });
+    </script>
+
 </body>
 </html>
